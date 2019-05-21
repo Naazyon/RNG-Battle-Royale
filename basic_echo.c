@@ -15,19 +15,72 @@ int gameStarted = 0;
 int numPlayers = 0;
 int playerID[8];
 int playerLife[8];
+int numOne = 0;
+int numTwo = 0;
+int sumNum = 0;
+char[32] playerInput[8];
+char[16] playerState[8];
 
-//  Checks if still connected... TODO
+// Calculates whether a life should be removed from a player...
+void calculateLives() {
+  numOne = generateRand(6);
+  numTwo = generateRand(6);
+  sumNum = numOne + numTwo;
+  int i = 0;
+  while (i < numPlayers) {
+    if (stillConnected(playerID[i])) {
+    if (playerState[i] == "PLAYING") {
+      if !(check(playerInput[i]), numOne, numTwo, sumNum) {
+          playerLife[i] = playerLife[i] - 1;
+        }
+      } else if {playerState[i] == "ELIMINATED"} {
+      
+      }
+      i++;
+    }
+  }
+}
+
+// Changes the state of the player depending on life...
+void changeStates() {
+  int i = 0;
+  int alive = 0;
+  while (i < numPlayers) {
+    if (playerLife[i] > 0) alive++; 
+  }
+  if (alive == 0) {
+    
+  }
+}
+
+//  Clears the current string
+char[] clearStr(char[] inp){
+  memset(inp, 0, sizeof(inp));
+}
+
+//  Checks if player still connected...
 int stillConnected(int playerNum) {
   err = send(playerID[playerNum], '.', read, 0);
   if (err < 0) {
-    playerID[playerNum] = 0;
     for (int i = playerNum; i < numPlayers - 1; i++) {
       playerID[i] = playerID[i+1];
       playerLife[i] = playerLife[i+1];
+      playerState[i] = playerState[i+1];
+      playerInput[i] = playerInput[i+1];
     }
     playerID[7] = 0;
     playerLife[7] = 0;
+    playerState[7] = clearStr(playerState[7]);
+    playerInput[7] = clearStr(playerInput[7]);
+    numPlayers--;
+    return 0;
   }
+  return 1;
+}
+
+//  Generates a random number between one and 'max' inclusive...
+int generateRand(int max) {
+  return rand() % 100 + 1;
 }
 
 //  Tries to connect to the game...
@@ -46,10 +99,65 @@ int tryConnect(int clientID) {
   }
 }
 
-int startGame() {
-  int currentPlayers = 
+//  Starts a 30 second timer to the start of the game...
+void *startCountdown (void *arg) {
+  int timer = 0;
+  while(timer != 30) {
+    sleep(1);
+    timer +=1;
+    if (numPlayers == 8) break;
+  }
+  if (numPlayers >= 4) {
+    return 1;
+  } else {
+    return 0;
+  }
 }
 
+//  Checks if the player passes or fails...
+int check(char[] inp, int rollOne, int rollTwo, int rollSum) {
+  printf(inp[7]);
+  // "EVEN"
+  if (inp[7] == "E") {
+    if(rollOne != rollTwo && rollSum % 2 == 0) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "ODD"
+  else if (inp[7] == "O") {
+    if(rollSum > 5 && rollSum % 2 == 1) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "DOUB"
+  else if (inp[7] == "D") {
+    if (rollOne == rollTwo) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "CON"
+  else if (inp[7] == "C") {
+    int dig = inp[11] - "0";
+    if (dig == rollOne || dig == rollTwo) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "INV"
+  else {
+    return 0;
+  }
+
+}
+
+//  Echoes the client input
 void *echoInp (void *client) {
   int clientID = *((int *) client);
   char buf[BUFFER_SIZE];
@@ -66,6 +174,7 @@ void *echoInp (void *client) {
     }
 }
 
+//  Starts a server connection and listens for any clients wanting to connect
 void *startServer (void *arg) {
   int port = 4000;
   int server_fd, client_fd, err;
