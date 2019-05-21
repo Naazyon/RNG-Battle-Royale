@@ -169,9 +169,9 @@ void startCountdown () {
 
 //  Checks if the player passes or fails...
 int check(char inp[], int rollOne, int rollTwo, int rollSum) {
-  printf(inp[7]);
+  printf(inp[8]);
   // "EVEN"
-  if (inp[7] == "E") {
+  if (inp[8] == "E") {
     if(rollOne != rollTwo && rollSum % 2 == 0) {
       return 1;
     } else {
@@ -179,7 +179,7 @@ int check(char inp[], int rollOne, int rollTwo, int rollSum) {
     }
   }
   // "ODD"
-  else if (inp[7] == "O") {
+  else if (inp[8] == "O") {
     if(rollSum > 5 && rollSum % 2 == 1) {
       return 1;
     } else {
@@ -187,7 +187,7 @@ int check(char inp[], int rollOne, int rollTwo, int rollSum) {
     }
   }
   // "DOUB"
-  else if (inp[7] == "D") {
+  else if (inp[8] == "D") {
     if (rollOne == rollTwo) {
       return 1;
     } else {
@@ -195,8 +195,8 @@ int check(char inp[], int rollOne, int rollTwo, int rollSum) {
     }
   }
   // "CON"
-  else if (inp[7] == "C") {
-    char numSubmitted = inp[11];
+  else if (inp[8] == "C") {
+    char numSubmitted = inp[12];
     char zero = "0";
     int dig = numSubmitted -zero;
     if (dig == rollOne || dig == rollTwo) {
@@ -209,7 +209,6 @@ int check(char inp[], int rollOne, int rollTwo, int rollSum) {
   else {
     return 0;
   }
-
 }
 
 //  Echoes the client input

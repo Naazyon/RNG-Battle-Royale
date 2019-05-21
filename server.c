@@ -15,17 +15,18 @@
 #define MAX_CLIENT_ID 32
 
 //  PLAYING VARIABLES
-#define NUMPLAYERS 8
+#define MAXPLAYERS 8
 #define MINPLAYERS 4
+#define START_LIVES 5
 
 //  INITS
 //    //  STATE VARIABLES
 char  serverState[16];
+char  playerState[16][MAXPLAYERS];
 char  clientInput[32][MAX_CLIENT_ID];
-char  playerState[16][NUMPLAYERS];
-char  playerInput[32][NUMPLAYERS];
-int   playerID[NUMPLAYERS];
-int   playerLife[NUMPLAYERS];
+char  playerInput[32][MAXPLAYERS];
+int   playerID[MAXPLAYERS];
+int   playerLife[MAXPLAYERS];
 int   numPlayers = 0;
 int   numRound = 0;
 //    //  GAME VARIABLES
@@ -33,15 +34,24 @@ int   rollOne = 0;
 int   rollTwo = 0;
 int   rollSum = 0;
 
-//  START
-//  Starts the server in background and executes the game
-int start() {
+
+//  LISTEN CLIENT
+//  Receives any input sent by a clientID, then stores it for access
+void *listenClient(void *client_id) {
   
-  pthread_t serverThread;
-  pthread_create(&serverThread, NULL, server, NULL);
+  int clientID = *((int *) client_id);
+  char buffer[BUFFER_SIZE];
+  int read = 0;
   
-  while(1) {
-    playGame();
+  while (1) {
+    memset(buffer, 0, sizeof(buffer));
+    read = recv(clientID, buffer, BUFFER_SIZE, 0);
+    
+    if (!read) break;
+    if (read < 0) {
+      printf("Reading from client #%03d failed.\n", clientID);
+    }
+    strcpy(clientInput[clientID], buffer);
   }
   
 }
@@ -56,7 +66,6 @@ void *server(void *arg) {
   server_id = socket(AF_INET, SOCK_STREAM, 0);
   if (server_id < 0) {
     printf("Failed to create socket.\n");
-    exit();
   }
   
   server.sin_family = AF_INET;
@@ -69,13 +78,11 @@ void *server(void *arg) {
   err = (server_id, (struct sockaddr *) &server, sizeof(server));
   if (err < 0) {
     printf("Failed to bind socket.\n");
-    exit();
   }
   
   err = listen(server_id, 128);
   if (err < 0) {
     printf("Failed to listen on socket.\n");
-    exit();
   }
   
   printf("Server started and listening on %d\n", PORT);
@@ -88,40 +95,30 @@ void *server(void *arg) {
       printf("Could not establish a connection\n");
     } else {
       printf("Connected to client #%03d...\n", client_id);
-      exit();
     }
     
-    if (clientID < MAX_CLIENT_ID) {
+    if (client_id < MAX_CLIENT_ID) {
       int *clientID = malloc(sizeof(*clientID));
       if ( clientID == NULL ) {
         printf("Failed to allocate memory to new client thread...");
-        exit();
       }
       *clientID = client_id;
       pthread_t clientThread;
-      pthread_create(&clientThread, 0, listen, clientID);
+      pthread_create(&clientThread, 0, listenClient, clientID);
     }
   }
   
 }
 
-//  LISTEN
-//  Receives any input sent by a clientID, then stores it for access
-void *listen(void *client_id) {
+//  START
+//  Starts the server in background and executes the game
+int start() {
   
-  int clientID = *((int *) client_id);
-  char buffer[BUFFER_SIZE];
-  int read = 0;
+  pthread_t serverThread;
+  pthread_create(&serverThread, NULL, server, NULL);
   
-  while (1) {
-    memset(buffer, 0, sizeof(buffer));
-    read = recv(clientID, buffer, BUFFER_SIZE, 0);
-    
-    if (!read) break;
-    if (read < 0) {
-      printf("Reading from client #%03d failed.\n", clientID);
-    }
-    strcpy(clientInput[clientID], buf)
+  while(1) {
+    playGame();
   }
   
 }
@@ -140,24 +137,30 @@ void playGame() {
   rollSum = 0;
   strcpy(serverState, "LISTENING");
   
-  sendAll("A new game has started, awaiting more players...\n")
+  sendAll("A new game has started, awaiting more players...\n");
   
   while (serverState == "LISTENING") {
     if (numPlayers > 0) {
-      waitPlayers();
+      if (waitPlayers()) {
+        strcpy(serverState, "PLAYING");
+        sendPlayers("START,%02d,%02d", numPlayers, START_LIVES);
+      } else {
+        sendPlayers("CANCEL");
+        removeAllPlayers();
+      }
     }
   }
   
-  sendAll("The game has started...\n")
+  sendAll("The game has started...\n");
   
-  while (playRound());
+  while (calculateAlive()) playRound();
   
-  sendAll("The game has ended...\n")
-  for (i = 0; i < numPlayers; i++) {
-    if playerState[i] == "ELIMINATED" {
-      send(playerID[i], "You were eliminated from the game, good luck next time!\n");
-    } else if playerState[i] == "VICTORIOUS" {
-      send(playerID[i], "You were victorious in this game, good job!\n");
+  sendAll("The game has ended...\n");
+  for (int i = 0; i < numPlayers; i++) {
+    if (playerState[i] == "ELIMINATED") {
+      sendMsg(playerID[i], "You were eliminated from the game, good luck next time!\n");
+    } else if (playerState[i] == "VICTORIOUS") {
+      sendMsg(playerID[i], "You were victorious in this game, good job!\n");
     }
   }
   removeAllPlayers();
@@ -177,11 +180,11 @@ int playRound() {
   
   inputParse();
   calculateLives();
+  calculateAlive();
   calculateStates();
-  checkConnected();
   
   int numAlive = 0;
-  for (i = 0; i < numPlayers; i++) {
+  for (int i = 0; i < numPlayers; i++) {
     if (playerState[numPlayers] == "ALIVE") {
       numAlive++;
     }
@@ -198,19 +201,85 @@ int playRound() {
 //  Waits for the minimum amount of players to enter the game, then starts a countdown
 int waitPlayers() {
   
+  int count = 0;
+  while (count < 30) {
+    sleep(1);
+    if (numPlayers == MAXPLAYERS) {
+      return 1;
+    }
+    count++;
+  }
+  
+  if (numPlayers >= 4) {
+    return 1;
+  } else {
+    return 0;
+  }
+  
 }
 
 //  INPUT CLEAR
 //  Clears all the input and parsed strings
-int inputClear() {}
+int inputClear() {
+  clearStrArray(clientInput);
+  clearStrArray(playerInput);
+}
 
 //  INPUT PARSE
-//  Reads all player inputs in the storage array (including malformed), and converts them to a usable form
-int inputParse() {}
+//  Reads all player inputs in the storage array and moves them to the playerInput
+int inputParse() {
+  int currentID = 0;
+  char rawInput[32];
+  for (int i = 0; i < numPlayers; i++) {
+    currentID = playerID[i];
+    strcpy(rawInput, clientInput[currentID]);
+  }
+}
 
 //  INPUT CHECK
 //  Checks the input against the stored variables and returns a correct or wrong value
-int checkAnswer() {}
+int checkAnswer(char inp[]) {
+  printf(inp[7]);
+  // "EVEN"
+  if (inp[7] == "E") {
+    if(rollOne != rollTwo && rollSum % 2 == 0) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "ODD"
+  else if (inp[7] == "O") {
+    if(rollSum > 5 && rollSum % 2 == 1) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "DOUB"
+  else if (inp[7] == "D") {
+    if (rollOne == rollTwo) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "CON"
+  else if (inp[7] == "C") {
+    char numSubmitted = inp[11];
+    char zero = "0";
+    int dig = numSubmitted -zero;
+    if (dig == rollOne || dig == rollTwo) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+  // "INV"
+  else {
+    return 0;
+  }
+}
 
 //  CALCULATE ROLLS
 //  Calculates the new dice rolls
@@ -222,45 +291,126 @@ void calculateRolls() {
 
 //  CALCULATE LIVES
 //  Calculates the lives of all the players, whether they pass or fail
-int calculateLives() {}
+void calculateLives() {
+  for (int i = 0; i < numPlayers; i++) {
+    if (playerState[i] == "ALIVE") {
+      if (checkAnswer(playerInput[i])) {
+        sendMsg(playerID[i], ("%03d,PASS\n", playerID[i]));
+      } else {
+        sendMsg(playerID[i], ("%03d,FAIL\n", playerID[i]));
+        playerLife[i] = playerLife[i]-1;
+      }
+    }
+  }
+}
 
-//  CALCULATESTATES
+//  CALCULATE ALIVE
+//  Check if anyone is alive
+int calculateAlive() {
+  int alive = 0;
+  for (int i = 0; i < numPlayers; i++) {
+    if (playerLife[i] > 0) alive++;
+  }
+  if (alive) return alive;
+  else return 0;
+}
+
+//  CALCULATE STATES
 //  Calculates the states of all the players
-int calculateStates() {}
+void calculateStates() {
+  int stillAlive = calculateAlive();
+  for (int i = 0; i < numPlayers; i++) {
+    if (playerState[i] == "ALIVE") {
+      if (playerLife[i] == 0) {
+        if (stillAlive) {
+          playerState[i] == "ELIMINATED";
+          sendMsg(playerID[i], ("%03d,ELIM\n", playerID[i]));
+        } else {
+          playerState[i] == "VICTORIOUS";
+          sendMsg(playerID[i], ("VICT\n", playerID[i]));
+        }
+      }
+    }
+  }
+}
 
 //  CHECK CONNECTED
 //  Checks if all the players are still connected. If not, they are removed from the player list
-int checkConnected() {}
+void checkConnected() {
+  int err;
+  for (int i = 0; i < numPlayers; i++) {
+    err = send(playerID[i], '\0', read, 0);
+    if (err < 0) removePlayer(i);
+  }
+}
 
 //  REMOVE PLAYER
 //  Removes a specific player (given an index) from the game
-int removePlayer(int playerIdx) {}
+int removePlayer(int playerIdx) {
+  for (int i = playerIdx; i < numPlayers - 1; i++) {
+      playerID[i] = playerID[i+1];
+      playerLife[i] = playerLife[i+1];
+      strcpy(playerState[i], playerState[i+1]);
+      strcpy(playerInput[i], playerInput[i+1]);
+    }
+    playerID[MAXPLAYERS-1] = 0;
+    playerLife[MAXPLAYERS-1] = 0;
+    strcpy(playerState[MAXPLAYERS-1], "");
+    strcpy(playerInput[MAXPLAYERS-1], "");
+    numPlayers--;
+}
 
 //  REMOVE ALL PLAYERS
 //  Removes all the players from the game
-int removeAllPlayers() {}
+int removeAllPlayers() {
+  for (int i = numPlayers - 1; i >= 0; i--) {
+    removePlayer(i);
+  }
+}
 
-//  SEND
+//  SEND MSG
 //  Sends a message to a client ID
-int send() {}
+int sendMsg(int clientID, char message[]) {
+  int err = send(clientID, message, sizeof message, 0);
+  if (err < 0) {
+    printf("Sending message %s to %d failed...\n", message, clientID);
+  }
+}
 
 //  SEND ALL
 //  Sends a message to all connected clients
-int sendAll() {}
+int sendAll(char message[]) {
+  for (int i = 1; i < MAX_CLIENT_ID; i++) {
+    send(i, message, sizeof message, 0);
+  }
+}
 
 //  SEND PLAYERS
 //  Sends a message to all connected players
-int sendPlayers() {}
+int sendPlayers(char message[]) {
+  for (int i = 0; i < numPlayers; i++) {
+    sendMsg(playerID[i], message);   
+  }
+}
 
 //  SEND STATUS
 //  Sends the statuses of each player
-int sendStatus() {}
+int sendStatus() {
+  int currentID;
+  sendAll(("The dice rolls from the previous round were %d and %d, with a maximum value of %d.\n", rollOne, rollTwo, rollSum));
+  for (int i = 0; i < numPlayers; i++) {
+    currentID = playerID[i];
+    sendMsg(currentID, ("Your current state is %s.\n", playerState[i]));
+    sendMsg(currentID, ("Your current lives are %02d.\n", playerLife[i]));
+  }
+  sendAll(("There are currently %d players still alive.\n", calculateAlive()));
+}
 
 //  CLEAR STR ARRAY
 //  Clears a string array and initialises it to empty values
-int clearStrArray(*strArray) {
-  for (i = 0; i < sizeof strArray; i++) {
-    strcpy(strArray[i], '');
+int clearStrArray(char *strArray[]) {
+  for (int i = 0; i < sizeof strArray; i++) {
+    strcpy(strArray[i], "/0");
   }
 }
 
