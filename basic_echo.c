@@ -19,9 +19,10 @@ int numOne = 0;
 int numTwo = 0;
 int sumNum = 0;
 char[32] playerInput[8];
+char[32] playerOutput[8];
 char[16] playerState[8];
 
-// Calculates whether a life should be removed from a player...
+// Calculates whether a life should be removed from a player... TODO
 void calculateLives() {
   numOne = generateRand(6);
   numTwo = generateRand(6);
@@ -41,16 +42,25 @@ void calculateLives() {
   }
 }
 
-// Changes the state of the player depending on life...
+// Changes the state of the player depending on life... TODO
 void changeStates() {
   int i = 0;
   int alive = 0;
+  char[16] stateStr = "ELIMINATED";
+  char[8] sendStr = "ELIM";
   while (i < numPlayers) {
     if (playerLife[i] > 0) alive++; 
   }
   if (alive == 0) {
-    
+    sendStr = "VICT";
+    stateStr = "VICTORIOUS";
   }
+  while(i < numPlayers) {
+    if (playerState[i] == "PLAYING") {
+      playerState[i] = stateStr;
+      playerOutput[i] = sendStr;
+    }
+  }  
 }
 
 //  Clears the current string
