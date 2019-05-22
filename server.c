@@ -1,3 +1,9 @@
+/*
+ *    Tested and debugged on Cygwin Windows 64-bit
+ *    Created by Aviciena Santoso, 22242172
+ *    Last updated 23/05/2019
+ */
+
 //  INCLUDES
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +34,7 @@ int   clientLives[MAX_CONNECTIONS];  //  1,2,3,4,5 < ALIVE | 0 < ELIMINATED / NO
 int   clientIDs[MAX_CONNECTIONS];
 int   numClients = 0;
 //    //  GAME VARIABLES
+int   gameStarted = 0;
 int   playerNums[MAX_PLAYERS];
 int   numPlayers = 0;
 int   rollOne = 0;
@@ -42,6 +49,7 @@ void *listenClient(void *client_connection) {
   int connectionNum = *((int *) client_connection);
   int clientID = clientIDs[connectionNum];
   char buffer[BUFFER_SIZE];
+  char inpBuf[BUFFER_SIZE];
   char outBuf[BUFFER_SIZE];
   int read = 0;
   int outCode = 0;
@@ -55,34 +63,38 @@ void *listenClient(void *client_connection) {
     memset(buffer, 0, sizeof(buffer));
     read = recv(clientID, buffer, sizeof(buffer), 0);   //  Read with a timeout...
     if (read > 0) {   // If read...
-      if (buffer[0] == "I") {
+      if (buffer[0] == 'I') {
         //  INIT
-        clientInputs[connectionNum] = 1;
-      } else if (buffer[8] == "E") {
+        if (gameStarted) {
+          clientOutputs[connectionNum] = 7;
+        } else {
+          clientInputs[connectionNum] = 1;
+        }
+      } else if (buffer[8] == 'E') {
         //  EVEN
         clientInputs[connectionNum] = 2;
-      } else if (buffer[8] == "O") {
+      } else if (buffer[8] == 'O') {
         //  ODD
         clientInputs[connectionNum] = 3;
-      } else if (buffer[8] == "D") {
+      } else if (buffer[8] == 'D') {
         //  DOUBLE
         clientInputs[connectionNum] = 4;
-      } else if (buffer[12] == "1") {
+      } else if (buffer[12] == '1') {
         //  CONTAINS 1
         clientInputs[connectionNum] = 5;
-      } else if (buffer[12] == "2") {
+      } else if (buffer[12] == '2') {
         //  CONTAINS 2
         clientInputs[connectionNum] = 6;
-      } else if (buffer[12] == "3") {
+      } else if (buffer[12] == '3') {
         //  CONTAINS 3
         clientInputs[connectionNum] = 7;
-      } else if (buffer[12] == "4") {
+      } else if (buffer[12] == '4') {
         //  CONTAINS 4
         clientInputs[connectionNum] = 8;
-      } else if (buffer[12] == "5") {
+      } else if (buffer[12] == '5') {
         //  CONTAINS 5
         clientInputs[connectionNum] = 9;
-      } else if (buffer[12] == "6") {
+      } else if (buffer[12] == '6') {
         //  CONTAINS 6
         clientInputs[connectionNum] = 10;
       } else {
@@ -97,35 +109,35 @@ void *listenClient(void *client_connection) {
       
       if (outCode == 1) {
         sprintf(outBuf, "WELCOME,%03d", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 2) {
-        sprintf(outBuf, "START,%02d,%02d", numPlayers, MAX_LIVES);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        sprintf(outBuf, "START,%02d,%02d", numPlayers, clientLives[connectionNum]);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 3) {
         sprintf(outBuf, "%03d,PASS", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 4) {
         sprintf(outBuf, "%03d,FAIL", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 5) {
         sprintf(outBuf, "%03d,ELIM", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 6) {
         sprintf(outBuf, "VICT", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 7) {
         sprintf(outBuf, "REJECT", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
         
       } else if (outCode == 8) {
         sprintf(outBuf, "CANCEL", clientID);
-        send(clientID, outBuf, sizeof outBuf, 0);
+        send(clientID, outBuf, strlen(outBuf), 0);
       }
       
       clientOutputs[connectionNum] = 0;
@@ -238,6 +250,7 @@ void playGame() {
   while(1) {  //  Wait 10-15 seconds for people to join...
     sleep(1);
     count++;
+    printf("Waited %d seconds...\n", count);
     for (int conNum = 0; conNum < numClients; conNum++) {
       if (clientLives[conNum] < 1) { //  If not connected...
         if (getInput(conNum) == 1) {
@@ -245,14 +258,15 @@ void playGame() {
           clientLives[conNum] = MAX_LIVES;
           numPlayers++;
           clientOutputs[conNum] = 1;
+          count = 0;
           printf("Client %03d joined...\n", clientIDs[conNum]);
         }
       }
     }
-    if (numPlayers == MAX_PLAYERS || count == 10) {
+    if (numPlayers == MAX_PLAYERS || count == 15) {
       if(numPlayers >= MIN_PLAYERS) { //  If enough, start the game...
         printf("Game started...\n");
-        sendPlayers(2);
+        break;
       } else {  // Else, cancel...
         sendPlayers(8);
         removeAllPlayers();
@@ -261,7 +275,11 @@ void playGame() {
     }
   }
   
+  gameStarted = 1;
+  
   while(playRound()); //  Play round until everyone is dead...
+  
+  gameStarted = 0;
   
   printf("The game has ended...\n");
   removeAllPlayers();
@@ -270,10 +288,17 @@ void playGame() {
 //  PLAY ROUND
 //  Plays a round of the game, and calculates whether the game has ended or is still ongoing
 int playRound() {
+  sendPlayers(2);
   calculateRolls();
+  printf("Calculated rolls...\n");
   sleep(5);
-  if(calculateLives()) return 1;
-  else return 0;
+  if(calculateLives()) {
+    printf("Play round returns 1\n");
+    return 1;
+  } else {
+    printf("Play round returns 0\n");
+    return 0;
+  }
 }
 
 //  CHECK ANSWER
@@ -329,7 +354,8 @@ void calculateRolls() {
 
 //  CALCULATE LIVES
 //  Calculates the lives of all the players, whether they pass or fail
-void calculateLives() {
+int calculateLives() {
+  
   int stillAlive = 0;
   for (int i = 0; i < numPlayers; i++) {  //  Updates the lives of the players depending on a pass or fail
     if (!checkAnswer(i)) {
@@ -340,21 +366,27 @@ void calculateLives() {
       clientOutputs[playerNums[i]] = 3; //  Send "PASS"
     }
   }
+  
   sleep(0.5); //  Allow sending of outputs...
+  
   if (stillAlive) { //  If a player is still alive
+    printf("There is a player still alive.\n");
     for (int i = 0; i < numPlayers; i++) {
       if (clientLives[playerNums[i]] == 0) {  //  If they were eliminated in the last round
         clientLives[playerNums[i]] = -1;  // Set them to "ELIM" life state
         clientOutputs[playerNums[i]] = 5;
       }
     }
+    printf("Calculate lives returns 1\n");
     return 1; //  Game still playing
   } else {
+    printf("All players are dead.\n");
     for (int i = 0; i < numPlayers; i++) {
       if (clientLives[playerNums[i]] == 0) {  //  If they were eliminated in the last round
         clientOutputs[playerNums[i]] = 6; // Send a victory cheer
       }
     }
+    printf("Calculate lives returns 0\n");
     return 0; //  Game finished
   }
 }
