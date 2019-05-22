@@ -18,13 +18,15 @@ int numOne = 0;
 int numTwo = 0;
 int sumNum = 0;
 int stillAlive = 0;
+int gameStarted = 0;
+int numConnections = 0;
 char serverState[16] = "LISTENING";
 int playerID[NUMPLAYERS];
 int numWinners[NUMPLAYERS];
 int winnerID[NUMPLAYERS];
 int playerLife[NUMPLAYERS];
 char playerInput[32][NUMPLAYERS];
-char playerOut[32][NUMPLAYERS];
+char playerOutput[32][NUMPLAYERS];
 char playerState[32][NUMPLAYERS];
 
 // Checks if all players are still connected...

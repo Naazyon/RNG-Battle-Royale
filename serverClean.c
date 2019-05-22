@@ -12,7 +12,7 @@
 //  SERVER VARIABLES
 #define PORT 4000
 #define BUFFER_SIZE 1024
-#define MAX_CONNECTIONS 32
+#define MAX_CLIENT_ID 32
 
 //  PLAYING VARIABLES
 #define MAXPLAYERS 8
@@ -20,18 +20,16 @@
 #define START_LIVES 5
 
 //  INITS
-//    //  SERVER VARIABLES
+//    //  STATE VARIABLES
 char  serverState[16];
-char  clientInput[32][MAX_CONNECTIONS+12];
-int   connectionID[MAX_CONNECTIONS];
-int   numConnections = 0;
-//    //  GAME VARIABLES
 char  playerState[16][MAXPLAYERS];
+char  clientInput[32][MAX_CLIENT_ID];
 char  playerInput[32][MAXPLAYERS];
 int   playerID[MAXPLAYERS];
 int   playerLife[MAXPLAYERS];
 int   numPlayers = 0;
 int   numRound = 0;
+//    //  GAME VARIABLES
 int   rollOne = 0;
 int   rollTwo = 0;
 int   rollSum = 0;
@@ -42,28 +40,30 @@ int   rollSum = 0;
 void *listenClient(void *client_id) {
   
   int clientID = *((int *) client_id);
-  char buf[BUFFER_SIZE];
+  char buffer[BUFFER_SIZE];
   int read = 0;
-  int connected = 0;
   int joined = 0;
   int timeout = 10;
+  int counter = timeout;
   
   while (1) {
-    memset(buf, 0, sizeof(buf));
-    read = recv(clientID, buf, BUFFER_SIZE, 0);
-
+    memset(buffer, 0, sizeof(buffer));
+    read = recv(clientID, buffer, BUFFER_SIZE, 0);
     if (!read) break;
-    if (read < 0) printf("Client read failed\n");
-
-    printf("CLIENT %03d: %s\n", clientID, buf);
-
-    if (joined == 1) {
-      memcpy(clientInput[clientID], buf, strlen(buf)+1);
+    if (read < 0) {
+      printf("Reading from client #%03d failed.\n", clientID);
+    }
+    if (joined) {
+      strcpy(clientInput[clientID], buffer);
     } else {
-      if (strcmp(buf, "INIT") == 0) {
-        printf("Attempting to join game...\n");
-        if (attemptJoin(clientID)) {
-          joined == 1;
+      counter++;
+      if (counter == timeout) {
+        if (buffer == "INIT") {
+          if (attemptJoin(clientID)) {
+            joined == 1;
+          } else {
+            counter = 0;
+          }
         }
       }
     }
@@ -74,55 +74,63 @@ void *listenClient(void *client_id) {
 //  SERVER
 //  Starts the server, and listens to the port
 void *server(void *arg) {
+  
   int server_id, client_id, err;
   struct sockaddr_in server, client;
-  char buf[BUFFER_SIZE];
-
+  
   server_id = socket(AF_INET, SOCK_STREAM, 0);
-  if (server_id < 0) printf("Could not create socket\n");
-
+  if (server_id < 0) {
+    printf("Failed to create socket.\n");
+  }
+  
   server.sin_family = AF_INET;
   server.sin_port = htons(PORT);
   server.sin_addr.s_addr = htonl(INADDR_ANY);
-
-  int opt_val = 1;
-  setsockopt(server_id, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof opt_val);
-
-  err = bind(server_id, (struct sockaddr *) &server, sizeof(server));
-  if (err < 0) printf("Could not bind socket\n");
-
+  
+  int optval = 1;
+  setsockopt(server_id, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
+  
+  err = (server_id, (struct sockaddr *) &server, sizeof(server));
+  if (err < 0) {
+    printf("Failed to bind socket.\n");
+  }
+  
   err = listen(server_id, 128);
-  if (err < 0) printf("Could not listen on socket\n");
-
-  printf("Server is listening on %d\n", PORT);
-
+  if (err < 0) {
+    printf("Failed to listen on socket.\n");
+  }
+  
+  printf("Server started and listening on %d\n", PORT);
+  
   while (1) {
     socklen_t client_len = sizeof(client);
     client_id = accept(server_id, (struct sockaddr *) &client, &client_len);
-    
-    printf("Connected to client #%03d!\n", client_id);
 
-    if (client_id < 0) printf("Could not establish new connection\n");
-    
-    int *clientID = malloc(sizeof(*clientID));
-    if ( clientID == NULL ) {
-        printf("Couldn't allocate memory for thread arg.\n");
-        exit(EXIT_FAILURE);
+    if (client_id < 0) {
+      printf("Could not establish a connection\n");
+    } else {
+      printf("Connected to client #%03d...\n", client_id);
     }
-    *clientID = client_id;
-    pthread_t thread;
-    pthread_create(&thread, 0, listenClient, clientID);
+    
+    if (client_id < MAX_CLIENT_ID) {
+      int *clientID = malloc(sizeof(*clientID));
+      if ( clientID == NULL ) {
+        printf("Failed to allocate memory to new client thread...");
+      }
+      *clientID = client_id;
+      pthread_t clientThread;
+      pthread_create(&clientThread, 0, listenClient, clientID);
+    }
   }
+  
 }
 
 //  START
 //  Starts the server in background and executes the game
 int start() {
   
-  pthread_t thread;
-  pthread_create(&thread, NULL, server, NULL);
-  
-  printf("Server created...\n");
+  pthread_t serverThread;
+  pthread_create(&serverThread, NULL, server, NULL);
   
   while(1) {
     playGame();
@@ -134,13 +142,11 @@ int start() {
 //  Starts the game, initialising all the game variables. Can be used to both play/replay the game
 void playGame() {
   
-  printf("Initialising variables...\n");
-  
   numPlayers = 0;
   clearStrArray(playerState);
   clearStrArray(playerInput);
-  memset(playerID, 0, sizeof playerID);
-  memset(playerLife, 0, sizeof playerLife);
+  memset(playerID, 0, sizeof(playerID));
+  memset(playerLife, 0, sizeof(playerLife));
   rollOne = 0;
   rollTwo = 0;
   rollSum = 0;
@@ -148,7 +154,7 @@ void playGame() {
   
   sendAll("A new game has started, awaiting more players...\n");
   
-  while (strcmp(serverState, "LISTENING") == 0) {
+  while (serverState == "LISTENING") {
     if (numPlayers > 0) {
       if (waitPlayers()) {
         strcpy(serverState, "PLAYING");
@@ -379,7 +385,6 @@ int removeAllPlayers() {
 //  SEND MSG
 //  Sends a message to a client ID
 int sendMsg(int clientID, char message[]) {
-  printf("Sending message to %03d", clientID);
   int err = send(clientID, message, sizeof message, 0);
   if (err < 0) {
     printf("Sending message %s to %d failed...\n", message, clientID);
@@ -389,11 +394,9 @@ int sendMsg(int clientID, char message[]) {
 //  SEND ALL
 //  Sends a message to all connected clients
 int sendAll(char message[]) {
-  printf("Attempting to send all...", message);
-  for (int i = 0; i < numConnections; i++) {
-    send(connectionID[i], message, sizeof message, 0);
+  for (int i = 1; i < MAX_CLIENT_ID; i++) {
+    send(i, message, sizeof message, 0);
   }
-  printf("Sent.\n", message);
 }
 
 //  SEND PLAYERS
@@ -419,27 +422,22 @@ int sendStatus() {
 
 //  CLEAR STR ARRAY
 //  Clears a string array and initialises it to empty values
-int clearStrArray(char strArray[][32]) {
+int clearStrArray(char *strArray[]) {
   for (int i = 0; i < sizeof strArray; i++) {
-    memcpy (strArray[i], "", strlen("")+1 );
+    strcpy(strArray[i], "/0");
   }
 }
 
 //  ATTEMPT JOIN
 //  Attempts to join the game
 int attemptJoin(int clientID) {
-  printf("Attempting to join...\n");
-  if (strcmp(serverState, "LISTENING") == 0) {
-    printf("Server state is listening...\n");
+  if (serverState == "LISTENING") {
     if (numPlayers != MAXPLAYERS) {
-      printf("Room available to join...\n");
       sendAll(("Client %d connected to the game, there are now %d number of players...", clientID, numPlayers));
-      playerID[numPlayers] *= clientID;
-      playerLife[numPlayers] *= START_LIVES;
+      playerID[numPlayers] = clientID;
+      playerLife[numPlayers] = START_LIVES;
       numPlayers++;
-      printf("Welcoming client...");
       sendMsg(clientID, ("WELCOME,%03d",clientID));
-      printf("Client welcomed.n");
       return 1;
     }
   }
